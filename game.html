@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>投票ジャンケン狂</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* カスタムスタイル */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #000000;
+            color: #f7f7f7;
+        }
+        .game-container { max-width: 96rem; min-height: 100vh; }
+        .card-button {
+            transition: all 0.15s;
+            box-shadow: 0 4px 15px rgba(255, 255, 255, 0.2);
+            border: 2px solid transparent;
+        }
+        .card-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 255, 255, 0.4);
+        }
+        .header-title {
+            color: #ff0000;
+            text-shadow: 0 0 10px rgba(255, 0, 0, 0.7);
+        }
+        /* プレイヤーごとのテーマカラー */
+        .text-casino-green { color: #00cc00; }
+        .text-casino-red { color: #ff0000; }
+        .bg-casino-green { background-color: #008000; }
+        .bg-casino-red { background-color: #cc0000; }
+        .border-you-fixed { border-color: #008000; }
+        .border-cpu-fixed { border-color: #cc0000; }
+
+        /* ブラフ宣言ボックスのスタイル */
+        .bluff-status-box {
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #1a1a1a;
+            border: 1px solid #333333;
+            min-width: 0;
+            flex-shrink: 0;
+        }
+        .self-declared { border-left: 5px solid #008000; }
+        .opponent-declared { border-left: 5px solid #cc0000; }
+
+        /* カード選択ボタンのサイズ調整 */
+        .card-grid {
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+        }
+        .card-item-button {
+            padding: 16px 8px;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+
+        /* 結果表示UIのスタイル */
+        .result-box {
+            background-color: #1a1a1a;
+            border: 1px solid #333333;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+        }
+        .player-status-box {
+            background-color: #1a1a1a;
+            border: 2px solid #333333;
+        }
+
+        /* ライフハートの色 */
+        .life-display { font-size: 2.25rem; line-height: 1; }
+        .life-hearts { color: #ff0000; }
+
+        /* 結果強調スタイル */
+        .result-header-win { color: #00ff00; }
+        .result-header-lose { color: #ff3333; }
+        .result-text-win { color: #00ff00; font-weight: bold; }
+        .result-text-lose { color: #ff3333; font-weight: bold; }
+
+        /* ======== ローディング画面用スタイル ======== */
+        #loading-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: none; justify-content: center; align-items: center; z-index: 1000;
+        }
+        .spinner {
+            width: 50px; height: 50px;
+            border: 5px solid rgba(255, 0, 0, 0.3);
+            border-top-color: #ff0000;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="p-4">
+    <!-- ローディングオーバーレイ -->
+    <div id="loading-overlay">
+        <div class="text-center text-white">
+            <div class="spinner mx-auto mb-4"></div>
+            <p class="text-lg">処理中...</p>
+        </div>
+    </div>
+
+    <div id="app" class="game-container mx-auto flex flex-col space-y-6">
+        <header class="text-center py-4 border-b border-gray-700">
+            <h1 class="text-3xl font-extrabold header-title">投票ジャンケン狂</h1>
+        </header>
+
+        <!-- 状態表示エリア -->
+        <div id="game-status" class="flex justify-around p-4 rounded-xl shadow-2xl">
+            <!-- プレイヤー情報 (YOU) -->
+            <div id="player-you" class="text-center p-3 rounded-lg player-status-box w-full mx-2 transition-all duration-300 border-you-fixed">
+                <h2 class="text-xl font-bold text-casino-green">YOU</h2>
+                <p id="life-status-you" class="life-display font-mono mt-1 life-hearts"></p>
+            </div>
+            <!-- CPU情報 -->
+            <div id="player-cpu" class="text-center p-3 rounded-lg player-status-box w-full mx-2 transition-all duration-300 border-cpu-fixed">
+                <h2 class="text-xl font-bold text-casino-red">CPU</h2>
+                <p id="life-status-cpu" class="life-display font-mono mt-1 life-hearts"></p>
+            </div>
+        </div>
+
+        <!-- メインの操作・表示エリア -->
+        <div id="main-phase-container" class="min-h-[300px] flex items-center justify-center p-4 bg-gray-900 rounded-xl shadow-2xl">
+            <!-- 動的にコンテンツが切り替わる場所 -->
+        </div>
+
+        <!-- メッセージログエリア - 補助情報として下部に配置 -->
+        <div class="flex-grow bg-gray-900 p-4 rounded-xl shadow-xl overflow-y-auto h-72 border border-gray-700">
+            <h3 class="text-xl font-semibold mb-2 border-b border-gray-700 pb-1 text-white">ゲームログ (補助情報)</h3>
+            <pre id="message-log" class="text-sm whitespace-pre-wrap text-gray-300"></pre>
+        </div>
+    </div>
+
+    <script>
+        // =================================================================
+        // 0. グローバル定数とユーティリティ
+        // =================================================================
+        const HANDS = ["グー", "パー", "チョキ"];
+        const HAND_EMOJIS = { "グー": "✊", "パー": "✋", "チョキ": "✌️" };
+
+        const LOG_ELEMENT = document.getElementById('message-log');
+        const PHASE_CONTAINER = document.getElementById('main-phase-container');
+        const LOADING_OVERLAY = document.getElementById('loading-overlay');
+        const START_BUTTON_ORIGINAL = document.createElement('button');
+        START_BUTTON_ORIGINAL.id = 'start-button';
+        START_BUTTON_ORIGINAL.className = 'px-8 py-3 bg-red-800 text-white font-bold rounded-lg text-lg hover:bg-red-600 transition shadow-md hover:shadow-xl card-button';
+        START_BUTTON_ORIGINAL.textContent = 'ゲーム開始';
+
+        function showLoading() { LOADING_OVERLAY.style.display = 'flex'; }
+        function hideLoading() { LOADING_OVERLAY.style.display = 'none'; }
+
+        // 初回起動時のUI設定
+        PHASE_CONTAINER.classList.remove('hidden');
+        PHASE_CONTAINER.classList.add('flex', 'bg-gray-900');
+        PHASE_CONTAINER.innerHTML = `<div class="text-center space-y-4">${START_BUTTON_ORIGINAL.outerHTML}</div>`;
+        const START_BUTTON = document.getElementById('start-button');
+
+        let currentInputResolver = null;
+
+        // =================================================================
+        // 1. ルールと結果 (Rules and Results)
+        // =================================================================
+
+        class BattleResult {
+            constructor(status, winner = null, loser = null, damage = 0, declared = null, cardA = null, cardB = null) {
+                this.status = status;
+                this.winner = winner;
+                this.loser = loser;
+                this.damage = damage;
+                this.declared = declared;
+                this.cardA = cardA;
+                this.cardB = cardB;
+            }
+        }
+
+        class BluffRule {
+            judgeDamage(cardA, cardB, playerA, playerB) {
+                if (cardA === cardB) { return new BattleResult("battle_draw", null, null, 0, null, cardA, cardB); }
+
+                const winMap = { "グー": "チョキ", "チョキ": "パー", "パー": "グー" };
+                const players = [{ p: playerA, c: cardA, o: playerB, oc: cardB }, { p: playerB, c: cardB, o: playerA, oc: cardA }];
+
+                for (const { p, c, o, oc } of players) {
+                    if (p.bluffDeclared) {
+                        // ブラフ成功条件: 宣言した手を実際に出し、それで勝つ
+                        if (p.bluffDeclared === c && winMap[c] === oc) {
+                            return new BattleResult("bluff_success", p.name, o.name, 2, p.bluffDeclared, cardA, cardB);
+                        }
+                        // ブラフ失敗条件: 宣言した手以外を出して負ける
+                        if (p.bluffDeclared !== c && winMap[oc] === c) {
+                            // 敗者はブラフ宣言した p
+                            return new BattleResult("bluff_fail", o.name, p.name, 2, p.bluffDeclared, cardA, cardB);
+                        }
+                    }
+                }
+
+                // ブラフ条件を満たさなければ通常判定
+                if (winMap[cardA] === cardB) {
+                    return new BattleResult("battle_win", playerA.name, playerB.name, 1, null, cardA, cardB);
+                } else {
+                    return new BattleResult("battle_win", playerB.name, playerA.name, 1, null, cardA, cardB);
+                }
+            }
+        }
+
+        // =================================================================
+        // 2. メッセージ出力 (Renderer)
+        // =================================================================
+
+        class MessageBuilder {
+            constructor() {
+                this.templates = {
+                    "ja": {
+                        "phase_start": "--- [ {phase}フェイズ開始 ] ---",
+                        "battle_result_win": "**{cardA}** vs **{cardB}** (ターン勝敗)",
+                        "battle_draw": "👉 あいこ！ 続行",
+                        "battle_win": "✅ {winner}の勝利！ {loser} が {damage} ダメージ！",
+                        "bluff_success": "💥 {winner}はブラフ成功 ({declared})！ {loser} に {damage} ダメージ！",
+                        "bluff_fail": "💀 {loser}はブラフ失敗 ({declared})！ {loser} に {damage} ダメージ！（自傷）",
+                        "deck_draw": "🃏 デッキ切れ！ 残りライフで勝敗を決定します。",
+                        "game_over_win": "🏆 ゲーム終了！ **あなたの勝利**！",
+                        "game_over_lose": "💀 ゲーム終了！ **あなたの敗北**！",
+                        "game_draw": "🤝 ゲーム終了！ 引き分け！",
+                        "result_header": "--- バトル結果 (ターン{turn}) ---",
+                        "life_status": "--- ライフ: You={you_life} | CPU={cpu_life} ---",
+                        "player_vote": "[{name}] が {vote} に投票しました。",
+                        "player_declare": "[{name}] が {declared} を宣言しました。",
+                        "player_play": "[{name}] は {card} をプレイしました。",
+                        "cpu_declare_public_log": "🔥 [CPU] が {declared} を宣言しました。",
+                    }
+                };
+            }
+
+            replaceWithEmoji(text) {
+                return text
+                    .replace(/グー/g, HAND_EMOJIS["グー"])
+                    .replace(/パー/g, HAND_EMOJIS["パー"])
+                    .replace(/チョキ/g, HAND_EMOJIS["チョキ"]);
+            }
+
+            build(eventType, kwargs) {
+                let template = this.templates["ja"][eventType] || `[未定義イベント: ${eventType}]`;
+                for (const key in kwargs) {
+                    template = template.replace(new RegExp(`{${key}}`, 'g'), kwargs[key] || '');
+                }
+                return this.replaceWithEmoji(template);
+            }
+        }
+
+        class Renderer {
+            constructor() {
+                this.builder = new MessageBuilder();
+                this.lifeYou = document.getElementById('life-status-you');
+                this.lifeCpu = document.getElementById('life-status-cpu');
+                this.gameMaster = null; // GameMasterから設定される
+            }
+
+            _send(message) {
+                const now = new Date();
+                const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+                LOG_ELEMENT.textContent += `[${time}] ${message}\n`;
+                LOG_ELEMENT.scrollTop = LOG_ELEMENT.scrollHeight;
+            }
+
+            updateStatus(board) {
+                const playerYou = board.players.find(p => p.name === 'you');
+                const playerCpu = board.players.find(p => p.name === 'CPU');
+
+                if (!playerYou || !playerCpu) { return; }
+
+                const renderLife = (life) => {
+                    const hearts = '❤️'.repeat(Math.max(0, life));
+                    const dead = life <= 0 ? '❌' : '';
+                    return hearts + dead;
+                };
+
+                this.lifeYou.innerHTML = renderLife(playerYou.life);
+                this.lifeCpu.innerHTML = renderLife(playerCpu.life);
+            }
+
+            renderEvent(event, kwargs = {}) {
+                let eventType = event;
+                if (event instanceof BattleResult) {
+                    eventType = event.status;
+                    kwargs = {
+                        winner: event.winner,
+                        loser: event.loser,
+                        damage: event.damage,
+                        declared: event.declared,
+                        cardA: event.cardA,
+                        cardB: event.cardB,
+                        ...kwargs
+                    };
+                }
+                this._send(this.builder.build(eventType, kwargs));
+            }
+
+            showMessage(message) {
+                this._send(message);
+            }
+        }
+
+        // =================================================================
+        // 3. プレイヤー入力 (InputProvider) - UI直接操作
+        // =================================================================
+
+        class HumanInputProvider {
+            constructor() { this.gameMaster = null; }
+
+            _renderUI(htmlContent) {
+                hideLoading();
+                PHASE_CONTAINER.innerHTML = htmlContent;
+                PHASE_CONTAINER.classList.add('items-center');
+                this.attachListeners();
+                return new Promise(resolve => {
+                    currentInputResolver = resolve;
+                });
+            }
+
+            async chooseVote(player) {
+                const buttonsHtml = HANDS.map(hand => `
+                    <button data-value="${hand}"
+                            class="vote-button px-6 py-3 text-lg font-bold bg-casino-green hover:bg-green-700 text-white rounded-lg card-button">
+                        ${HAND_EMOJIS[hand]}
+                    </button>
+                `).join('');
+
+                const html = `
+                    <div class="text-center space-y-6 w-full max-w-sm">
+                        <h3 class="text-2xl font-bold text-casino-green">YOU の投票</h3>
+                        <p class="text-gray-400">デッキ構築のための投票を行ってください。</p>
+                        <div class="flex justify-center space-x-4">
+                            ${buttonsHtml}
+                        </div>
+                    </div>
+                `;
+
+                const choice = await this._renderUI(html);
+                this.gameMaster.renderer.showMessage(this.gameMaster.renderer.builder.build('player_vote', { name: player.name, vote: choice }));
+                return choice;
+            }
+
+            async maybeDeclare(player) {
+                const opponent = this.gameMaster.board.players.find(p => p.name !== player.name);
+
+                const handDisplay = player.hand.map(card => HAND_EMOJIS[card]).join('');
+
+                const buttons = [
+                    { text: "宣言しない (安全)", value: null, class: 'bg-gray-700 hover:bg-gray-600 text-white' },
+                    ...HANDS.map(hand => ({
+                        text: `${HAND_EMOJIS[hand]} を宣言 (勝利で2ダメ / 敗北で自傷2ダメ)`,
+                        value: hand,
+                        class: 'bg-casino-green hover:bg-green-700 text-white'
+                    }))
+                ];
+
+                const buttonsHtml = buttons.map(btn => `
+                    <button data-value="${btn.value}"
+                            class="prep-button w-full px-6 py-3 font-bold text-lg rounded-lg card-button ${btn.class}">
+                        ${btn.text}
+                    </button>
+                `).join('');
+
+                const html = `
+                    <div class="text-center space-y-4 w-full max-w-md">
+                        <h3 class="text-2xl font-bold text-casino-green">YOU のブラフ宣言</h3>
+                        <p class="text-gray-400">ライフが負けているためブラフ権があります。（CPUライフ: ${opponent.life}）</p>
+
+                        <!-- 手札表示エリア -->
+                        <div class="text-xl font-semibold text-white mt-4 mb-2">手札:</div>
+                        <div class="text-5xl mb-4 font-extrabold text-casino-green border border-green-700 p-4 rounded-lg bg-gray-800 tracking-widest">
+                            ${handDisplay}
+                        </div>
+
+                        <div class="space-y-3">
+                            ${buttonsHtml}
+                        </div>
+                    </div>
+                `;
+
+                const choice = await this._renderUI(html);
+                this.gameMaster.renderer.showMessage(this.gameMaster.renderer.builder.build('player_declare', { name: player.name, declared: choice || 'なし' }));
+                return choice;
+            }
+
+            async chooseCard(player) {
+                const opponent = this.gameMaster.board.players.find(p => p.name !== player.name);
+                const selfDeclared = player.bluffDeclared;
+                const opponentDeclared = opponent.bluffDeclared;
+
+                const selfDeclaredStatus = selfDeclared
+                    ? `<span class="font-extrabold text-casino-green">💥 ${HAND_EMOJIS[selfDeclared]}</span>`
+                    : `<span class="text-gray-400">なし</span>`;
+
+                const opponentDeclaredStatus = opponentDeclared
+                    ? `<span class="font-extrabold text-casino-red">🔥 ${HAND_EMOJIS[opponentDeclared]}</span>`
+                    : `<span class="text-gray-400">なし</span>`;
+
+                const statusHtml = `
+                    <div class="flex flex-col w-full mb-6 items-center">
+                        <div class="bluff-container flex w-full space-x-4 max-w-lg mx-auto">
+                            <div class="bluff-status-box self-declared w-1/2 flex-none justify-between items-center">
+                                <span class="text-casino-green whitespace-nowrap">【あなたの宣言】:</span>
+                                <span class="ml-2">${selfDeclaredStatus}</span>
+                            </div>
+                            <div class="bluff-status-box opponent-declared w-1/2 flex-none justify-between items-center">
+                                <span class="text-casino-red whitespace-nowrap">【CPUの宣言】:</span>
+                                <span class="ml-2">${opponentDeclaredStatus}</span>
+                            </div>
+                        </div>
+                        <p class="text-white mt-4 mb-3 text-lg font-semibold">手札から出すカードを選んでください:</p>
+                    </div>
+                `;
+
+                const cardButtonsHtml = player.hand.map((card, index) => `
+                    <button data-value="${index}"
+                            class="card-select-button card-item-button bg-casino-green hover:bg-green-700 text-white rounded-lg card-button">
+                        ${HAND_EMOJIS[card]}
+                    </button>
+                `).join('');
+
+                const html = `
+                    <div class="text-center space-y-4 w-full px-4">
+                        <h3 class="text-2xl font-bold text-casino-green">YOU のカード選択</h3>
+                        ${statusHtml}
+                        <div class="card-grid max-w-4xl mx-auto">
+                            ${cardButtonsHtml}
+                        </div>
+                    </div>
+                `;
+
+                const index = await this._renderUI(html);
+                return parseInt(index);
+            }
+
+            async showResult(title, resultMessage, resultStatus) {
+                let headerClass = '';
+                let resultTitle = title;
+                let buttonClass = 'bg-gray-700 hover:bg-gray-600';
+
+                if (resultStatus === 'you_win') {
+                    headerClass = 'result-header-win';
+                    resultTitle = 'ターン勝利！';
+                    buttonClass = 'bg-casino-green hover:bg-green-700';
+                } else if (resultStatus === 'you_lose') {
+                    headerClass = 'result-header-lose';
+                    resultTitle = 'ターン敗北...';
+                    buttonClass = 'bg-casino-red hover:bg-red-700';
+                }
+
+                const html = `
+                    <div class="text-center space-y-6 w-full max-w-md">
+                        <div class="result-box p-4 rounded-lg">
+                            <h3 class="text-3xl font-extrabold ${headerClass} mb-4">${resultTitle}</h3>
+                            <div class="text-lg text-gray-200 space-y-2">
+                                ${resultMessage}
+                            </div>
+                        </div>
+                        <button data-value="ok"
+                                class="result-ok-button w-full px-6 py-3 text-lg font-bold text-white rounded-lg card-button ${buttonClass}">
+                            OK (次のカード選択へ)
+                        </button>
+                    </div>
+                `;
+
+                await this._renderUI(html);
+            }
+
+            async showEndGame(title, resultMessage) {
+                let buttonClass = 'bg-gray-700 hover:bg-gray-600';
+                if (title.includes('勝利')) {
+                     buttonClass = 'bg-casino-green hover:bg-green-700';
+                } else if (title.includes('敗北')) {
+                     buttonClass = 'bg-casino-red hover:bg-red-700';
+                }
+
+                const html = `
+                    <div class="text-center space-y-6 w-full max-w-md">
+                        <div class="result-box p-4 rounded-lg">
+                            <h3 class="text-3xl font-extrabold text-white mb-4">${title}</h3>
+                            <div class="text-xl text-gray-200 space-y-2">
+                                ${resultMessage}
+                            </div>
+                        </div>
+                        <button data-value="end"
+                                class="result-end-button w-full px-6 py-3 text-xl font-bold text-white rounded-lg card-button ${buttonClass}">
+                            ゲームを終了する
+                        </button>
+                    </div>
+                `;
+
+                await this._renderUI(html);
+            }
+
+            attachListeners() {
+                // ボタンクリック時にローディングを開始し、Promiseを解決してGameMasterに処理を戻す
+                PHASE_CONTAINER.querySelectorAll('.vote-button, .prep-button, .card-select-button, .result-ok-button, .result-end-button').forEach(btn => {
+                    btn.onclick = () => {
+                        showLoading();
+                        const value = btn.dataset.value === 'null' ? null : btn.dataset.value;
+                        if (currentInputResolver) currentInputResolver(value);
+                    };
+                });
+            }
+        }
+
+        class AIInputProvider {
+            constructor() { this.gameMaster = null; }
+            async chooseVote(player) {
+                const hand = HANDS[Math.floor(Math.random() * HANDS.length)];
+                await new Promise(r => setTimeout(r, 500));
+                this.gameMaster.renderer.showMessage(`[AI_${player.name}] の選択: ${hand}`);
+                return hand;
+            }
+            async showResult() { await new Promise(r => setTimeout(r, 1500)); }
+            async showEndGame() { await new Promise(r => setTimeout(r, 1000)); }
+
+            async maybeDeclare(player) {
+                const shouldDeclare = Math.random() < 0.5;
+                if (shouldDeclare) {
+                    const bluffHand = HANDS[Math.floor(Math.random() * HANDS.length)];
+                    await new Promise(r => setTimeout(r, 500));
+                    this.gameMaster.renderer.showMessage(`[AI_${player.name}] はブラフを宣言！: ${bluffHand}`);
+                    return bluffHand;
+                }
+                await new Promise(r => setTimeout(r, 500));
+                this.gameMaster.renderer.showMessage(`[AI_${player.name}] はブラフを宣言しません。`);
+                return null;
+            }
+
+            async chooseCard(player) {
+                if (!player.hand.length) return null;
+                const index = Math.floor(Math.random() * player.hand.length);
+                await new Promise(r => setTimeout(r, 500));
+                this.gameMaster.renderer.showMessage(`[AI_${player.name}] は ${index}番目 (${player.hand[index]}) を選択`);
+                return index;
+            }
+        }
+
+        // =================================================================
+        // 4. プレイヤーと盤面 (Player and Board)
+        // =================================================================
+
+        class Player {
+            constructor(name, isAi, gameMaster) {
+                this.name = name;
+                this.gameMaster = gameMaster;
+                this.isAi = isAi;
+                this.provider = isAi ? new AIInputProvider() : new HumanInputProvider();
+                this.provider.gameMaster = gameMaster;
+                this.life = 5;
+                this.hand = [];
+                this.bluffDeclared = null;
+                this.vote = null;
+            }
+
+            initialize() {
+                this.life = 5;
+                this.hand = [];
+                this.vote = null;
+                this.bluffDeclared = null;
+                this.gameMaster.renderer.showMessage(`[DEBUG] ${this.name} を ${this.isAi ? 'AI' : 'Human'}で設定`);
+            }
+
+            async chooseVote() {
+                this.vote = await this.provider.chooseVote(this);
+            }
+
+            receiveCards(cards) {
+                this.hand.push(...cards);
+            }
+
+            async showBattleResult(result, playerYou, playerCpu) {
+                let resultStatus = 'draw';
+                if (result.winner === playerYou.name) {
+                    resultStatus = 'you_win';
+                } else if (result.loser === playerYou.name) {
+                    resultStatus = 'you_lose';
+                }
+
+                const logMessage = [
+                    "---------------------------------------",
+                    this.gameMaster.renderer.builder.build("result_header", { turn: this.gameMaster.turnCount }),
+                    this.gameMaster.renderer.builder.build("battle_result_win", { cardA: result.cardA, cardB: result.cardB }),
+                    this.gameMaster.renderer.builder.build(result.status, {
+                        winner: result.winner,
+                        loser: result.loser,
+                        damage: result.damage,
+                        declared: result.declared
+                    }),
+                    this.gameMaster.renderer.builder.build("life_status", { you_life: playerYou.life, cpu_life: playerCpu.life }),
+                    "---------------------------------------"
+                ].join('\n');
+
+                this.gameMaster.renderer.showMessage(logMessage);
+
+                if (!this.isAi) {
+                    let htmlMessage = logMessage.replace(/^-+/g, '').replace(/\n/g, '<br>');
+
+                    if (resultStatus === 'you_win') {
+                        htmlMessage = htmlMessage.replace(/✅(.*?)ダメージ！/g, '<span class="result-text-win">✅$1ダメージ！</span>');
+                        htmlMessage = htmlMessage.replace(/💥(.*?)ダメージ！/g, '<span class="result-text-win">💥$1ダメージ！</span>');
+                    } else if (resultStatus === 'you_lose') {
+                        htmlMessage = htmlMessage.replace(/✅(.*?)ダメージ！/g, '<span class="result-text-lose">✅$1ダメージ！</span>');
+                        htmlMessage = htmlMessage.replace(/💀(.*?)ダメージ！/g, '<span class="result-text-lose">💀$1ダメージ！</span>');
+                    } else {
+                        htmlMessage = htmlMessage.replace(/👉 (.*)/g, '<span class="result-header-draw">👉 $1</span>');
+                    }
+
+                    htmlMessage = htmlMessage.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+
+                    await this.provider.showResult(`バトル結果 (ターン ${this.gameMaster.turnCount})`, htmlMessage, resultStatus);
+                } else {
+                    await this.provider.showResult();
+                }
+            }
+
+
+            async requestPrep(bluffAllowed = true) {
+                const opponent = this.gameMaster.board.players.find(p => p.name !== this.name);
+
+                if (bluffAllowed) {
+                    this.bluffDeclared = await this.provider.maybeDeclare(this);
+                } else {
+                    this.bluffDeclared = null;
+                }
+
+                if (!this.isAi && opponent.bluffDeclared) {
+                    this.gameMaster.renderer.showMessage(
+                        this.gameMaster.renderer.builder.build('cpu_declare_public_log', { declared: opponent.bluffDeclared })
+                    );
+                }
+            }
+
+            async requestPlayCard() {
+                const index = await this.provider.chooseCard(this);
+
+                if (index === null || index === undefined || index < 0 || index >= this.hand.length) {
+                    this.gameMaster.renderer.showMessage(`[DEBUG] [プレイヤー${this.name}] のエラー: 手札切れまたは無効な選択`);
+                    return null;
+                }
+                const card = this.hand.splice(index, 1)[0];
+                this.gameMaster.renderer.showMessage(this.gameMaster.renderer.builder.build('player_play', { name: this.name, card: card }));
+                return card;
+            }
+        }
+
+        class Board {
+            constructor(renderer) {
+                this.deck = [];
+                this.discard = [];
+                this.players = [];
+                this.renderer = renderer;
+                this.rule = new BluffRule();
+            }
+
+            initializePlayers(playerInfos) {
+                this.players = playerInfos.map(info => new Player(info.name, info.is_ai, this.renderer.gameMaster));
+                this.players.forEach(p => p.initialize());
+                this.renderer.showMessage(`[盤面] 参加プレイヤー一覧: ${this.players.map(p => p.name).join(', ')}`);
+            }
+
+            async voteAndBuild() {
+                this.renderer.showMessage("[盤面] 投票受付");
+                const votePromises = this.players.map(p => p.chooseVote());
+                await Promise.all(votePromises);
+
+                const votes = this.players.map(p => p.vote);
+                this.renderer.showMessage(`[盤面] 投票結果: [${votes.join(', ')}]`);
+                this.buildDeck(votes);
+                this.renderer.showMessage(`[盤面] デッキ枚数: ${this.deck.length} 枚`);
+            }
+
+            buildDeck(votes) {
+                const base = { "グー": 1, "パー": 1, "チョキ": 1 };
+                votes.forEach(v => { base[v] += 1; });
+                this.deck = [];
+                for (const hand in base) {
+                    for (let i = 0; i < base[hand] * 20; i++) { this.deck.push(hand); }
+                }
+                for (let i = this.deck.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [this.deck[i], this.deck[j]] = [this.deck[j], this.deck[i]];
+                }
+                this.renderer.showMessage("[盤面] デッキを構築しました");
+            }
+
+            resetBluff() {
+                this.players.forEach(p => { p.bluffDeclared = null; });
+            }
+
+            draw(player, num = 5) {
+                const drawn = this.deck.splice(0, num);
+                player.receiveCards(drawn);
+                return drawn;
+            }
+
+            discardHand(player) {
+                this.discard.push(...player.hand);
+                player.hand = [];
+            }
+
+            setHands() {
+                this.players.forEach(p => {
+                    this.discardHand(p);
+                    this.draw(p, 5);
+                    this.renderer.showMessage(`[盤面] ${p.name} の手札: [${p.hand.join(', ')}]`);
+                });
+                this.renderer.updateStatus(this);
+            }
+
+            async requestPrepPlayers() {
+                const [a, b] = this.players;
+                const aLoss = a.life < b.life;
+                const bLoss = b.life < a.life;
+
+                const prepA = a.requestPrep(aLoss);
+                const prepB = b.requestPrep(bLoss);
+
+                await Promise.all([prepA, prepB]);
+            }
+
+            async phaseBattle() {
+                this.renderer.showMessage("[盤面] バトルスタート");
+                const [a, b] = this.players;
+
+                while (a.hand.length > 0 && b.hand.length > 0) {
+                    this.renderer.showMessage("--- カード選択 ---");
+
+                    const [cardA, cardB] = await Promise.all([
+                        a.requestPlayCard(),
+                        b.requestPlayCard()
+                    ]);
+
+                    this.renderer.updateStatus(this);
+
+                    if (cardA === null || cardB === null) break;
+
+                    const result = this.rule.judgeDamage(cardA, cardB, a, b);
+
+                    if (result.loser && result.damage > 0) {
+                        const loser = result.loser === a.name ? a : b;
+                        loser.life -= result.damage;
+                        this.renderer.updateStatus(this);
+                    }
+
+                    const humanPlayer = this.players.find(p => !p.isAi);
+                    const cpuPlayer = this.players.find(p => p.isAi);
+
+                    await humanPlayer.showBattleResult(result, humanPlayer, cpuPlayer);
+
+                    if (result.status !== "battle_draw") { return; }
+                    this.renderer.showMessage("--- あいこ！次のカード選択へ ---");
+                }
+
+                if (a.hand.length === 0 || b.hand.length === 0) {
+                    const result = new BattleResult("deck_draw");
+                    this.renderer.renderEvent(result);
+                }
+            }
+
+            isEmpty() { return this.deck.length === 0; }
+            hasPlayerWithZeroLife() { return this.players.some(p => p.life <= 0); }
+
+            judgeGame() {
+                const [a, b] = this.players;
+                this.renderer.showMessage(`[盤面] ゲーム結果: ${a.name}=${a.life} | ${b.name}=${b.life}`);
+                if (a.life > b.life) return a.name;
+                if (b.life > a.life) return b.name;
+                return null;
+            }
+        }
+
+        // =================================================================
+        // 5. ゲームマスター (GameMaster) - 進行役
+        // =================================================================
+
+        class GameMaster {
+            constructor() {
+                this.renderer = new Renderer();
+                this.renderer.gameMaster = this;
+                this.board = new Board(this.renderer);
+                this.running = false;
+                this.turnCount = 0;
+            }
+
+            async startGame() {
+                START_BUTTON.disabled = true;
+                this.renderer.showMessage("=== ゲーム開始 ===");
+                this.running = true;
+                showLoading();
+                await this.initial();
+                await this.vote();
+                await this.turnLoop();
+                await this.endGame();
+                hideLoading();
+                START_BUTTON.disabled = false;
+
+                PHASE_CONTAINER.innerHTML = `<div class="text-center space-y-4"><h3 class="text-3xl font-bold text-red-500">対戦終了</h3><p class="text-lg text-gray-300">新しいゲームを開始するにはボタンを押してください。</p>${START_BUTTON_ORIGINAL.outerHTML}</div>`;
+                document.getElementById('start-button').onclick = () => {
+                    LOG_ELEMENT.textContent = '';
+                    window.gm.startGame();
+                };
+            }
+
+            async initial() {
+                this.renderer.renderEvent("phase_start", { phase: "初期化" });
+                this.turnCount = 0;
+                const playerInfos = [{ name: "you", is_ai: false }, { name: "CPU", is_ai: true }];
+                this.board.initializePlayers(playerInfos);
+                this.renderer.showMessage("プレイヤーと盤面を初期化しました。");
+                this.renderer.updateStatus(this.board);
+            }
+
+            async vote() {
+                this.renderer.renderEvent("phase_start", { phase: "投票" });
+                await this.board.voteAndBuild();
+            }
+
+            async turnLoop() {
+                this.renderer.showMessage("[ターン開始]");
+                while (this.running) {
+                    this.turnCount += 1;
+                    this.renderer.showMessage(`\n=== ターン ${this.turnCount} ===`);
+                    await this.executeTurn();
+
+                    if (this.board.isEmpty()) {
+                        this.running = false;
+                        this.renderer.renderEvent(new BattleResult("deck_draw"));
+                    } else if (this.board.hasPlayerWithZeroLife()) {
+                        this.running = false;
+                    }
+                    if (this.running) {
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+                }
+            }
+
+            async executeTurn() {
+                const humanPlayer = this.board.players.find(p => !p.isAi);
+                const cpuPlayer = this.board.players.find(p => p.isAi);
+                const humanLoss = humanPlayer.life < cpuPlayer.life;
+                const cpuLoss = cpuPlayer.life < humanPlayer.life;
+
+                // 1. セットアップフェイズ
+                this.renderer.renderEvent("phase_start", { phase: "セットアップ" });
+                this.board.resetBluff();
+
+                // 2. ドローフェイズ
+                this.renderer.showMessage("[ドローフェイズ]");
+                this.board.setHands();
+
+                // 3. 仕込みフェイズ
+                this.renderer.renderEvent("phase_start", { phase: "仕込み" });
+                const prepPromises = this.board.players.map(p => {
+                    const isLoss = p.name === 'you' ? humanLoss : cpuLoss;
+                    return p.requestPrep(isLoss);
+                });
+                await Promise.all(prepPromises);
+
+                // 4. バトルフェイズ
+                this.renderer.renderEvent("phase_start", { phase: "バトル" });
+                await this.board.phaseBattle();
+
+                // 5. ターン終了フェイズ
+                this.renderer.renderEvent("phase_start", { phase: "ターン終了" });
+            }
+
+            async endGame() {
+                const winner = this.board.judgeGame();
+                let title;
+                let message;
+
+                if (winner === 'you') {
+                    this.renderer.renderEvent("game_over_win", { winner: winner });
+                    title = "ゲーム終了！勝利！";
+                    message = "🏆 **あなたの勝利**です！おめでとうございます！";
+                } else if (winner === 'CPU') {
+                    this.renderer.renderEvent("game_over_lose", { winner: winner });
+                    title = "ゲーム終了！敗北...";
+                    message = "💀 **CPUの勝利**です。残念ですが、次の挑戦をお待ちしています！";
+                } else {
+                    this.renderer.renderEvent("game_draw");
+                    title = "ゲーム終了！引き分け！";
+                    message = "🤝 **引き分け**でした！ナイスゲーム！";
+                }
+
+                const humanPlayer = this.board.players.find(p => !p.isAi);
+
+                if (humanPlayer) {
+                    const htmlMessage = message.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+                    await humanPlayer.provider.showEndGame(title, htmlMessage);
+                } else {
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+            }
+        }
+
+        // =================================================================
+        // 6. アプリケーションのエントリーポイント
+        // =================================================================
+
+        let gm;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            window.gm = new GameMaster();
+
+            START_BUTTON.onclick = () => {
+                LOG_ELEMENT.textContent = '';
+                window.gm.startGame();
+            };
+
+            window.gm.renderer.updateStatus(window.gm.board);
+        });
+
+    </script>
+</body>
+</html>
